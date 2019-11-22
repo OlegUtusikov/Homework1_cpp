@@ -1,6 +1,8 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include <sstream>
+#include <QDir>
+#include <iostream>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -8,23 +10,25 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
     connect(ui->FindButton, &QPushButton::clicked, this, [this] {
-        finder.set_substring(ui->InputData->toPlainText());
+        ui->FilesOut->clear();
+        outInd = 1;
+        QString path =  ui->PathData->toPlainText();
+        if (path.isEmpty())
+        {
+            path = QDir::homePath();
+        }
+        finder.run(ui->InputData->toPlainText(), path, ui->checkBox->isEnabled());
+    });
+
+    connect(ui->StopButton, &QPushButton::clicked, this, [this] {
+        finder.stop();
     });
 
 
     connect(&finder, &finder::result_changed, this, [this] {
-        finder::result cur_res = finder.get_result();
-        ui->FilesOut->clear();
-        std::stringstream ss;
-        for (std::size_t ind = 0; ind < cur_res.files.size(); ++ind)
-        {
-             ss << QString::number(ind).append(") ").append(cur_res.files[ind]).append('\n').toStdString();
-        }
-        if (!cur_res.done_work)
-        {
-            ss << "\n Findning ... \n";
-        }
-        ui->FilesOut->setText(ss.str().c_str());
+        QString lastStr = finder.getLastRes();
+        ui->FilesOut->append(QString::number(outInd) + ") " + lastStr);
+        ++outInd;
     });
 }
 

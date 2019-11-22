@@ -1,5 +1,4 @@
-#ifndef MAINWINDOW_H
-#define MAINWINDOW_H
+#pragma once
 
 #include <QMainWindow>
 #include "finder.h"
@@ -19,7 +18,5 @@ public:
 private:
     Ui::MainWindow *ui;
     finder finder;
-    void run();
-
+    std::size_t outInd = 1;
 };
-#endif // MAINWINDOW_H
