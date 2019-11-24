@@ -8,6 +8,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <QFile>
+#include <QFileInfo>
 
 class finder : public  QObject
 {
@@ -18,10 +19,8 @@ public:
     ~finder();
 
     void run(QString const& str, QString const& path, bool hidden);
-    void stop();
 
-    std::vector<QString> getResult() const;
-    QString getLastRes() const;
+    QString get_last_res() const;
 
 signals:
     void result_changed();
@@ -29,36 +28,37 @@ signals:
 private:
     void queue_callback();
     void callback();
-    void clearQueies();
-    void addQuery(QString const& path);
-    QString getQuery();
-    void setStr(QString const& str);
-    void setHidden(bool hidden);
+    void clear_queies();
+    void add_query(QString const& path);
+    QString get_query();
+    void set_str(QString const& str);
+    void set_hidden(bool hidden);
     void find(QString const& path);
-    void processDir(QString const& path);
-    void processFile(QString const& path);
 
-    void processBigFile(QFile& file);
-    void processSmallFile(QFile& file);
+    void process_dir(QString const& path);
+    void process_file(QString const& path);
 
-    bool isHidden(QString const& name);
+    void find_in_file(QFile& file);
+
+    void print_str(QFileInfo const& info, QFile& file, int line, QString const& res);
+
+    bool is_hidden(QString const& name);
 
 private:
-    const QString UNREAL = "|";
-    const int TIME_SLEEP = 5;
-    const int MAX_SIZE = 4 * 1024 * 1024;
-    QString mStr;
-    std::vector<QString> result;
+    const QString UNREAL = "~";
+    const int TIME_SLEEP = 10;
+    const int MAX_SIZE = 8 * 1024 * 1024;
+    QString m_str {""};
     QString lastStr {""};
     std::queue<QString> queries;
-    const std::size_t countOfThreads = 8;
+    const std::size_t count_of_threads = 4;
     std::vector<std::thread> pool;
-    std::condition_variable hasWork;
-    std::mutex workMutex;
+    std::condition_variable has_work;
+    std::mutex work_mutex;
     std::atomic<bool> quit {false};
     std::atomic<bool> finish {false};
 
     bool callback_queued {false};
-    bool watchHidden {false};
+    bool watch_hidden {false};
 };
 

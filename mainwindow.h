@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <QMainWindow>
 #include "finder.h"
 
@@ -15,8 +16,16 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+public slots:
+    void print_res();
+
+private:
+    void init_and_connect();
+    void find_substring(QString const& path, bool hidden, QString const& str);
+
 private:
     Ui::MainWindow *ui;
-    finder finder;
+    std::unique_ptr<finder> finder_ptr;
     std::size_t outInd = 1;
+    bool new_out = true;
 };

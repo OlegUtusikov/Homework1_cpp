@@ -8,25 +8,21 @@
 
 finder::finder()
 {
-    for (std::size_t i = 0; i < countOfThreads; ++i)
+    for (std::size_t i = 0; i < count_of_threads; ++i)
     {
         pool.emplace_back(std::thread([this] {
             while (true)
             {
-                std::unique_lock<std::mutex> lock(workMutex);
-                hasWork.wait(lock, [this] { return quit || !queries.empty(); });
+                std::unique_lock<std::mutex> lock(work_mutex);
+                has_work.wait(lock, [this] { return quit || !queries.empty(); });
 
-                if (quit)
+                if (quit || finish.load())
                 {
                     break;
                 }
 
-                if (finish.load()) {
-                    continue;
-                }
-
                 lock.unlock();
-                QString curPath = getQuery();
+                QString curPath = get_query();
 
                 if (curPath.isEmpty()) {
                     continue;
@@ -36,30 +32,33 @@ finder::finder()
                 if (!info.exists())
                 {
                     {
-                        std::lock_guard<std::mutex> lock(workMutex);
+                        std::lock_guard<std::mutex> lock(work_mutex);
                         QString tmp = "";
-                        result.push_back(tmp.append("Invalid path : '")
-                                            .append(curPath)
-                                            .append("'"));
+                        tmp.append("Invalid path : '")
+                           .append(curPath)
+                           .append("'");
                     }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(TIME_SLEEP));
                     queue_callback();
                     continue;
                 }
-                if (info.isDir())
+                if (!is_hidden(info.fileName()))
                 {
-                    processDir(curPath);
-                }
-                else if (info.isFile() && !info.isExecutable())
-                {
-                    processFile(curPath);
+                    if (info.isDir())
+                    {
+                        process_dir(curPath);
+                    }
+                    else if (info.isFile() && !info.isExecutable())
+                    {
+                        process_file(curPath);
+                    }
                 }
             }
         }));
     }
 }
 
-void finder::processDir(const QString &path)
+void finder::process_dir(const QString &path)
 {
     if (finish.load())
     {
@@ -73,19 +72,11 @@ void finder::processDir(const QString &path)
                                                       QDir::Files |
                                                       QDir::NoSymLinks))
     {
-        if (finish.load())
-        {
-            break;
-        }
-
-        if (!isHidden(curInfo.absoluteFilePath()))
-        {
-            addQuery(curInfo.absoluteFilePath());
-        }
+        add_query(curInfo.absoluteFilePath());
     }
 }
 
-void finder::processFile(const QString &path)
+void finder::process_file(const QString &path)
 {
     if (finish.load())
     {
@@ -93,76 +84,35 @@ void finder::processFile(const QString &path)
     }
 
     QFile file(path);
-    if (file.size() > MAX_SIZE)
-    {
-        processBigFile(file);
-    }
-    else
-    {
-        processSmallFile(file);
-    }
+    find_in_file(file);
 }
 
-void finder::processSmallFile(QFile &file)
+void finder::print_str(const QFileInfo &info, QFile &file, int line, QString const& res)
+{
+    {
+        std::lock_guard<std::mutex> lock(work_mutex);
+        lastStr.clear();
+        lastStr.append(info.absoluteFilePath().append(" : ")
+                                                .append(QString::number(line))
+                                                .append("\n"))
+                                                .append("---------------------------\n")
+                                                .append(res).append("\n\n");
+    }
+
+    queue_callback();
+    file.close();
+}
+
+void finder::find_in_file(QFile &file)
 {
     QFileInfo info(file);
-
-    auto finishSearch = [this, &file, &info] (int line) {
-        {
-            std::lock_guard<std::mutex> lock(workMutex);
-            lastStr.clear();
-            lastStr.append(info.absoluteFilePath().append("[ Line = ")
-                                                    .append(QString::number(line))
-                                                    .append(" ]"));
-            result.push_back(lastStr);
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(TIME_SLEEP));
-        queue_callback();
-        file.close();
-    };
 
     if (file.open(QIODevice::ReadOnly | QIODevice::Text))
     {
         QTextStream stream(&file);
-        QString data = "";
-        data.append(mStr).append(UNREAL).append(stream.readAll());
-        auto const& res = Utils::contains(data, mStr.size());
-        if (res.first)
-        {
-            int ind = res.second - 2 * static_cast<int>(mStr.size());
-            finishSearch(Utils::getLine(data, ind) + 1);
-            return;
-        }
-    }
-}
-
-void finder::processBigFile(QFile &file)
-{
-    QFileInfo info(file);
-
-    auto finishSearch = [this, &file, &info] (int line) {
-        {
-            std::lock_guard<std::mutex> lock(workMutex);
-            lastStr.clear();
-            lastStr.append(info.absoluteFilePath().append("[ Line = ")
-                                                    .append(QString::number(line))
-                                                    .append(" ]"));
-            result.push_back(lastStr);
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(TIME_SLEEP));
-        queue_callback();
-        file.close();
-    };
-
-    if (file.open(QIODevice::ReadOnly | QIODevice::Text))
-    {
-        QTextStream stream(&file);
-        const int SIZE = std::max(MAX_SIZE, 2 * mStr.size());
+        const int SIZE = std::max(MAX_SIZE, 2 * m_str.size());
         QString prev = "";
         int line = 0;
-        int index = 0;
         while (!stream.atEnd())
         {
             if (finish.load()) {
@@ -174,41 +124,37 @@ void finder::processBigFile(QFile &file)
             if (!prev.isEmpty())
             {
                 nStr.clear();
-                nStr.append(mStr).append(UNREAL).append(prev).append(buf.leftRef(mStr.size()).toString());
-                auto const& res = Utils::contains(nStr, mStr.size());
-                if (res.first)
+                QString n_buf = prev.append(buf.left(m_str.size()));
+                nStr.append(m_str).append(UNREAL).append(n_buf);
+                auto const& res = Utils::contains(nStr, m_str.size());
+                if (res.first != -1)
                 {
-                    int ind = res.second - 2 * mStr.size();
-                    finishSearch(line + Utils::getLine(nStr, ind) + 1);
+                    int ind = res.first - 2 * m_str.size() - UNREAL.size() + 1;
+                    print_str(info, file, line + Utils::getLine(n_buf, ind) + 1, res.second);
                     return;
                 }
-                index += prev.size();
-                line += Utils::getLine(prev, prev.size());
+                line += Utils::getLine(prev, prev.size()) + 1;
             }
             nStr.clear();
-            nStr.append(mStr).append(UNREAL).append(buf);
-            auto const& res = Utils::contains(nStr, mStr.size());
-            if (res.first)
+            nStr.append(m_str).append(UNREAL).append(buf);
+            auto const& res = Utils::contains(nStr, m_str.size());
+            if (res.first != -1)
             {
-                int ind = res.second - 2 * mStr.size();
-                finishSearch(line + Utils::getLine(nStr, ind) + 1);
+                int ind = res.first - 2 * m_str.size() - UNREAL.size() + 1;
+                print_str(info, file, line + Utils::getLine(buf, ind) + 1, res.second);
                 return;
             }
-            index += buf.size();
-            line += Utils::getLine(buf, buf.size() - prev.size());
-            prev = buf.rightRef(mStr.size()).toString();
+            line += Utils::getLine(buf, buf.size() - prev.size()) + 1;
+            prev = buf.rightRef(m_str.size()).toString();
         }
     }
 }
 
 finder::~finder()
 {
+    quit.store(true);
     finish.store(true);
-    {
-        std::lock_guard<std::mutex> lock(workMutex);
-        quit = true;
-        hasWork.notify_all();
-    }
+    has_work.notify_all();
 
     for (auto& pItem : pool)
     {
@@ -219,17 +165,27 @@ finder::~finder()
     }
 }
 
-void finder::addQuery(const QString &path)
+void finder::add_query(const QString &path)
 {
-    std::lock_guard<std::mutex> lock(workMutex);
+    if (finish.load())
+    {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(work_mutex);
     queries.push(path);
-    hasWork.notify_all();
+    has_work.notify_all();
 }
 
-QString finder::getQuery()
+QString finder::get_query()
 {
-    std::lock_guard<std::mutex> lock(workMutex);
+    if (finish.load())
+    {
+        return "";
+    }
+
     QString res = "";
+    std::lock_guard<std::mutex> lock(work_mutex);
     if (!queries.empty())
     {
         res = queries.front();
@@ -238,49 +194,40 @@ QString finder::getQuery()
     return res;
 }
 
-void finder::clearQueies()
+void finder::clear_queies()
 {
-    std::lock_guard<std::mutex> lock(workMutex);
+    std::lock_guard<std::mutex> lock(work_mutex);
     while (!queries.empty())
     {
         queries.pop();
     }
 }
 
-void finder::setStr(const QString &str)
+void finder::set_str(const QString &str)
 {
-    std::lock_guard<std::mutex> lock(workMutex);
-    mStr = str;
+    std::lock_guard<std::mutex> lock(work_mutex);
+    m_str = str;
 }
 
-void finder::setHidden(bool hidden)
+void finder::set_hidden(bool hidden)
 {
-    std::lock_guard<std::mutex> lock(workMutex);
-    watchHidden = hidden;
+    std::lock_guard<std::mutex> lock(work_mutex);
+    watch_hidden = hidden;
 }
 
 void finder::run(const QString &str, const QString &path, bool hidden)
 {
-    stop();
-    finish.store(false);
-    clearQueies();
-    addQuery(path);
-    setStr(str);
-    setHidden(hidden);
-    result.clear();
-    hasWork.notify_all();
-}
-
-void finder::stop()
-{
-    finish.store(true);
-    clearQueies();
-    setStr("");
+    set_str(str);
+    set_hidden(hidden);
+    add_query(path);
+    has_work.notify_all();
 }
 
 void finder::queue_callback()
 {
-    if (callback_queued)
+    std::this_thread::sleep_for(std::chrono::milliseconds(TIME_SLEEP));
+
+    if (finish.load() || callback_queued)
     {
         return;
     }
@@ -292,24 +239,19 @@ void finder::queue_callback()
 void finder::callback()
 {
     {
-        std::lock_guard<std::mutex> lock(workMutex);
+        std::lock_guard<std::mutex> lock(work_mutex);
         callback_queued = false;
     }
 
     emit result_changed();
 }
 
-std::vector<QString> finder::getResult() const
+bool finder::is_hidden(QString const& name)
 {
-    return result;
+    return watch_hidden || name.isEmpty() ? false : name[0] == '.';
 }
 
-bool finder::isHidden(QString const& name)
-{
-    return watchHidden ? false : name[0] == '.';
-}
-
-QString finder::getLastRes() const
+QString finder::get_last_res() const
 {
     return lastStr;
 }
