@@ -18,14 +18,15 @@ public:
 
 public slots:
     void print_res();
+    void print_error();
+    void print_finish();
 
 private:
-    void init_and_connect();
     void find_substring(QString const& path, bool hidden, QString const& str);
 
 private:
     Ui::MainWindow *ui;
     std::unique_ptr<finder> finder_ptr;
-    std::size_t outInd = 1;
-    bool new_out = true;
+    std::size_t outInd {1};
+    bool new_out {true};
 };

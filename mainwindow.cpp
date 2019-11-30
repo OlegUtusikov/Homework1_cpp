@@ -1,8 +1,7 @@
+#include <QDir>
+
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
-#include <sstream>
-#include <QDir>
-#include <iostream>
 
 void MainWindow::print_res()
 {
@@ -16,9 +15,17 @@ void MainWindow::print_res()
     ++outInd;
 }
 
-void MainWindow::init_and_connect()
+void MainWindow::print_error()
 {
+    QString msg = finder_ptr.get()->get_error();
+    ui->FilesOut->clear();
+    ui->FilesOut->append("ERROR: " + msg);
+}
 
+void MainWindow::print_finish()
+{
+    ui->FilesOut->append("Completed!!!");
+    finder_ptr.reset();
 }
 
 void MainWindow::find_substring(const QString &path, bool hidden, const QString &str)
@@ -30,6 +37,8 @@ void MainWindow::find_substring(const QString &path, bool hidden, const QString 
     }
     finder_ptr.reset(new finder);
     connect(finder_ptr.get(), &finder::result_changed, this, &MainWindow::print_res);
+    connect(finder_ptr.get(), &finder::error, this, &MainWindow::print_error);
+    connect(finder_ptr.get(), &finder::completed, this, &MainWindow::print_finish);
     finder_ptr->run(str, path, hidden);
 }
 
@@ -38,10 +47,15 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-
     connect(ui->FindButton, &QPushButton::clicked, this, [this] {
         ui->FilesOut->clear();
         new_out = true;
+        QString str = ui->InputData->toPlainText();
+        if (str.isEmpty())
+        {
+            ui->FilesOut->setText("ERROR: substring is empty.");
+            return;
+        }
         ui->FilesOut->setText("Finding...");
         this->outInd = 1;
         QString path =  ui->PathData->toPlainText();
@@ -49,8 +63,6 @@ MainWindow::MainWindow(QWidget *parent)
         {
             path = QDir::homePath();
         }
-        std::cout << path.toStdString() << std::endl;
-        QString str = ui->InputData->toPlainText();
         bool hidden = ui->checkBox->isChecked();
         this->find_substring(path, hidden, str);
     });
@@ -61,7 +73,13 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         }
         disconnect(finder_ptr.get(), &finder::result_changed, this, &MainWindow::print_res);
+        disconnect(finder_ptr.get(), &finder::error, this, &MainWindow::print_error);
+        disconnect(finder_ptr.get(), &finder::completed, this, &MainWindow::print_finish);
         finder_ptr.reset();
+        if (new_out)
+        {
+            ui->FilesOut->clear();
+        }
         ui->FilesOut->append("Stopped!");
     });
 }
